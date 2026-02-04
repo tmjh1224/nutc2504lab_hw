@@ -6,8 +6,6 @@ from typing import Annotated, TypedDict
 from langgraph.graph import StateGraph, START, END
 from langchain_openai import ChatOpenAI
 
-# --- 1. 定義 State ---
-# 使用 Annotated 與 operator.add 是處理並行節點 (Parallel) 的標準做法
 class State(TypedDict):
     audio_path: str
     raw_txt: str
@@ -19,7 +17,7 @@ class State(TypedDict):
 # --- 2. 初始化 LLM ---
 llm = ChatOpenAI(
     base_url="https://ws-02.wade0426.me/v1",
-    api_key="YOUR_API_KEY", # !!! 請填入您的 KEY !!!
+    api_key="YOUR_API_KEY", 
     model="google/gemma-3-27b-it",
     temperature=0
 )
@@ -38,7 +36,7 @@ def asr_node(state: State):
     
     r.raise_for_status()
     task_id = r.json()["id"]
-    print(f"✅ 任務建立成功 ID: {task_id}")
+    print(f"任務建立成功 ID: {task_id}")
     
     def wait_download(url_type: str):
         url = f"{BASE}/api/v1/subtitle/tasks/{task_id}/subtitle?type={url_type}"
@@ -51,7 +49,7 @@ def asr_node(state: State):
     # 取得原始資料
     txt = wait_download("TXT")
     srt = wait_download("SRT")
-    print("✅ ASR 轉錄完成")
+    print("ASR 轉錄完成")
     return {"raw_txt": txt, "raw_srt": srt}
 
 def minutes_taker_node(state: State):
@@ -59,14 +57,14 @@ def minutes_taker_node(state: State):
     prompt = f"請根據以下 SRT 內容整理成詳細逐字稿，格式為 [時間] 發言：內容：\n\n{state['raw_srt']}"
     # 確保 invoke 有拿到東西
     response = llm.invoke(prompt)
-    print("✅ 逐字稿整理完成")
+    print("逐字稿整理完成")
     return {"minutes": response.content}
 
 def summarizer_node(state: State):
     print("--- [Node 2-B] 正在提取重點摘要... ---")
     prompt = f"請根據以下內容提取重點摘要：\n\n{state['raw_txt']}"
     response = llm.invoke(prompt)
-    print("✅ 重點摘要完成")
+    print("重點摘要完成")
     return {"summary": response.content}
 
 def writer_node(state: State):
@@ -79,7 +77,6 @@ def writer_node(state: State):
     )
     return {"final_report": report}
 
-# --- 4. 構建 Graph ---
 workflow = StateGraph(State)
 
 workflow.add_node("asr", asr_node)
@@ -88,10 +85,8 @@ workflow.add_node("summarizer", summarizer_node)
 workflow.add_node("writer", writer_node)
 
 workflow.add_edge(START, "asr")
-# 平行分支
 workflow.add_edge("asr", "minutes_taker")
 workflow.add_edge("asr", "summarizer")
-# 匯合分支：這兩個節點都會指向 writer
 workflow.add_edge("minutes_taker", "writer")
 workflow.add_edge("summarizer", "writer")
 
@@ -99,7 +94,6 @@ workflow.add_edge("writer", END)
 
 app = workflow.compile()
 
-# --- 5. 執行 ---
 if __name__ == "__main__":
     WAV_FILE = "./audio/Podcast_EP14.wav"
     
