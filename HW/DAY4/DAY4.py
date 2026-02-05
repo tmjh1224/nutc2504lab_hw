@@ -271,4 +271,4 @@ if __name__ == "__main__":
     if user_question in ANSWER_CACHE:
         print(f"📝 最終回答:\n{ANSWER_CACHE[user_question]}")
     else:
-        print("❌ 未能生成回答。")
+        print("❌ 未能生成回答。") 
