@@ -127,4 +127,4 @@ if __name__ == "__main__":
     WAV_FILE = "./audio/Podcast_EP14.wav"
     if os.path.exists(WAV_FILE):
         final_output = app.invoke({"audio_path": WAV_FILE})
-        print(final_output["final_report"])
+        print(final_output["final_report"]) 
