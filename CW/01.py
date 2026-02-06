@@ -2,17 +2,17 @@ import requests
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-class TechVDBManager:
+class BatchVDBManager:
     def __init__(self, host="localhost", port=6333):
         self.client = QdrantClient(host=host, port=port)
         self.api_url = "https://ws-04.wade0426.me/embed"
-        self.vector_size = 4096 
 
     def get_embeddings(self, texts):
+        """批量獲取向量，直接對應您提供的 API 格式"""
         payload = {
             "texts": texts,
-            "normalize": True,
-            "batch_size": 32
+            "task_description": "檢索技術文件",
+            "normalize": True
         }
         response = requests.post(self.api_url, json=payload)
         if response.status_code == 200:
@@ -20,67 +20,71 @@ class TechVDBManager:
         else:
             raise Exception(f"API 請求失敗: {response.text}")
 
-    def create_collection(self, name):
-        if self.client.collection_exists(collection_name=name):
-            self.client.delete_collection(collection_name=name)
-            
+    def run(self):
+        c_name = "dynamic_tech_kb"
+
+        # 1. 使用者輸入數量與資料
+        while(1):
+            try:
+                num = int(input("請輸入5(包括)以上的筆數："))
+                if num >= 5:
+                    break
+                else:
+                    print("請重新輸入")        
+            except ValueError:
+                print("請輸入有效的數字！")
+                continue
+                return
+
+        documents = []
+        for i in range(num):
+            content = input(f"📝 第 {i+1} 筆資料：")
+            documents.append({"id": i + 1, "text": content})
+
+        # 2. 批量處理 (一次將所有 texts 送出)
+        print("\n正在進行批量向量化處理")
+        all_texts = [doc["text"] for doc in documents]
+        all_embeddings = self.get_embeddings(all_texts)
+
+        # 3. 自動適應維度並建立 Collection
+        detected_size = len(all_embeddings[0])
+        print(f"📏 偵測到向量維度為: {detected_size}")
+
+        if self.client.collection_exists(c_name):
+            self.client.delete_collection(c_name)
+        
         self.client.create_collection(
-            collection_name=name,
+            collection_name=c_name,
             vectors_config=models.VectorParams(
-                size=self.vector_size, 
+                size=detected_size, # 動態設定
                 distance=models.Distance.COSINE
             ),
         )
-        print(f"Collection '{name}' 建立成功。")
 
-    def upsert_data(self, collection_name, documents):
-        texts = [doc["text"] for doc in documents]
-        embeddings = self.get_embeddings(texts)
-
+        # 4. 批量寫入資料庫
         points = [
-            models.PointStruct(
-                id=doc["id"],
-                vector=emb,
-                payload=doc
-            )
-            for doc, emb in zip(documents, embeddings)
+            models.PointStruct(id=doc["id"], vector=emb, payload=doc)
+            for doc, emb in zip(documents, all_embeddings)
         ]
-        
-        self.client.upsert(collection_name=collection_name, points=points)
-        print(f"成功導入 {len(points)} 筆技術文件資料。")
+        self.client.upsert(collection_name=c_name, points=points)
+        print(f"成功導入 {len(points)} 筆資料。")
 
-    def search(self, collection_name, query_text, limit=3):
-        query_vector = self.get_embeddings([query_text])[0]
-        
-        # 使用最新的 query_points API
-        results = self.client.query_points(
-            collection_name=collection_name,
-            query=query_vector,
-            limit=limit
-        ).points
-        return results
+        # 5. 輸入比較項目
+        while True:
+            query = input("\n🔍 請輸入要比較的項目 (或輸入 exit/q 退出)：")
+            if query.lower() == 'exit' or query.lower().upper() == "Q": break
+            
+            query_vector = self.get_embeddings([query])[0]
+            hits = self.client.query_points(
+                collection_name=c_name,
+                query=query_vector,
+                limit=3
+            ).points
 
-# --- 執行流程 ---
+            print("\n[ 檢索結果 ]")
+            for hit in hits:
+                print(f"相關/相似度評分: {hit.score:.4f} | 內容: {hit.payload['text']}")
+
 if __name__ == "__main__":
-    vdb = TechVDBManager()
-    c_name = "tech_knowledge_base"
-    
-    vdb.create_collection(c_name)
-    
-    # 更改為更「正常」且具備邏輯關係的測試資料
-    data = [
-        {"id": 1, "text": "大型語言模型 (LLM) 是基於 Transformer 架構的深度學習模型，擅長處理自然語言任務。"},
-        {"id": 2, "text": "檢索增強生成 (RAG) 結合了外部知識庫，能有效減少模型產生幻覺的問題。"},
-        {"id": 3, "text": "向量資料庫 (Vector Database) 專門用於存儲和檢索高維向量數據，常應用於相似度搜尋。"},
-        {"id": 4, "text": "Python 是一種廣泛應用於人工智慧開發的程式語言，擁有豐富的機器學習函式庫。"},
-        {"id": 5, "text": "微調 (Fine-tuning) 是指在特定領域數據上對預訓練模型進行額外訓練的過程。"},
-        {"id": 6, "text": "Embedding 技術將文字轉換為數值向量，讓電腦能夠理解詞彙間的語義關係。"}
-    ]
-    
-    vdb.upsert_data(c_name, data)
-    
-    print("\n--- 技術文獻召回測試 ---")
-    query = input()
-    hits = vdb.search(c_name, query)
-    for hit in hits:
-        print(f"相關度評分: {hit.score:.4f} | 內容: {hit.payload['text']}")
+    vdb = BatchVDBManager()
+    vdb.run()
