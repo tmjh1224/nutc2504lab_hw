@@ -66,18 +66,16 @@ def get_context(client, query_emb):
         res = client.query_points(collection_name="hw7", query=query_emb, limit=1)
         return res.points[0].payload['text'], res.points[0].payload['source']
 
-# --- 3. 主程式 (含 DeepEval) ---
 if __name__ == "__main__":
     chunks = process_idp_files()
     
-    # 向量化與建立
     res = session.post(EMBED_URL, json={"texts": ["test"], "task_description": "檢索", "normalize": True}).json()
     dim = len(res["embeddings"][0])
     q_client = QdrantClient(":memory:")
     q_client.create_collection("hw7", vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE))
     
     points = []
-    print(f"📏 同步向量中 (維度: {dim})...")
+    print(f"同步向量中 (維度: {dim})...")
     for i, item in enumerate(chunks):
         try:
             emb = session.post(EMBED_URL, json={"texts": [item['text']], "task_description": "檢索"}, timeout=TIMEOUT).json()["embeddings"][0]
@@ -95,7 +93,6 @@ if __name__ == "__main__":
             q_emb = session.post(EMBED_URL, json={"texts": [row['questions']], "task_description": "檢索"}).json()["embeddings"][0]
             ctx, src = get_context(q_client, q_emb)
             
-            # 生成答案
             ans_res = session.post(LLM_URL, json={
                 "model": MODEL_NAME,
                 "messages": [{"role": "user", "content": f"根據資料：{ctx}\n回答：{row['questions']}"}]
@@ -106,7 +103,7 @@ if __name__ == "__main__":
             eval_prompt = f"評分 RAG (0-1), 僅輸出4個數字用逗號隔開(Faith, Rel, Prec, Rec):\n問:{row['questions']}\n答:{actual_ans}\n文:{ctx[:200]}"
             eval_res = session.post(LLM_URL, json={"model": MODEL_NAME, "messages": [{"role": "user", "content": eval_prompt}]}).json()
             scores = [float(x) for x in re.findall(r"\d+\.\d+|\d+", eval_res["choices"][0]["message"]["content"])]
-            if len(scores) < 4: scores = [0.8, 0.8, 0.8, 0.8] # 備援分數
+            if len(scores) < 4: scores = [0.0, 0.0, 0.0, 0.0]
 
             final_results.append({
                 "q_id": row['id'], "questions": row['questions'], "answer": actual_ans, "source": src,
@@ -119,4 +116,4 @@ if __name__ == "__main__":
     # 輸出最終檔案
     output_df = pd.DataFrame(final_results)
     output_df.to_csv('test_dataset.csv', index=False, encoding='utf-8-sig')
-    print("\n🎉 全部完成！產出檔案：test_dataset.csv")
+    print("\n產出檔案：test_dataset.csv")
